@@ -1,0 +1,6 @@
+{
+  "name": "AZRYLPREM",
+  "description": "AZRYLPREM - Modern, Futuristic, Dark-Tech Premium Utility Platform with Verif, Bulk, and Admin Control Center.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

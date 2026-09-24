@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "WebsiteConfig": {
+      "title": "WebsiteConfig",
+      "description": "Global website configuration and feature toggles",
+      "type": "object",
+      "properties": {
+        "siteName": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 300 },
+        "maintenanceMode": { "type": "boolean" },
+        "channelLink": { "type": "string", "maxLength": 500 },
+        "adminWaLink": { "type": "string", "maxLength": 500 },
+        "verifButtonText": { "type": "string", "maxLength": 100 },
+        "bulkButtonText": { "type": "string", "maxLength": 100 },
+        "maxBulkLimit": { "type": "number" },
+        "verifActive": { "type": "boolean" },
+        "bulkActive": { "type": "boolean" },
+        "announcement": { "type": "string", "maxLength": 500 },
+        "announcementActive": { "type": "boolean" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["siteName", "channelLink", "adminWaLink"]
+    },
+    "UserActivity": {
+      "title": "UserActivity",
+      "description": "Anonymized user activity logs",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string", "maxLength": 64 },
+        "action": { "type": "string", "maxLength": 50 },
+        "feature": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "maxLength": 50 },
+        "responseTime": { "type": "number" },
+        "errorMessage": { "type": "string", "maxLength": 500 },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["sessionId", "action", "status"]
+    },
+    "SiteStats": {
+      "title": "SiteStats",
+      "description": "Aggregated site usage statistics",
+      "type": "object",
+      "properties": {
+        "totalVisitors": { "type": "number" },
+        "activeUsers": { "type": "number" },
+        "verifRequests": { "type": "number" },
+        "bulkRequests": { "type": "number" },
+        "successfulRequests": { "type": "number" },
+        "failedRequests": { "type": "number" },
+        "todayActivity": { "type": "number" },
+        "lastUpdated": { "type": "string" }
+      }
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Whitelisted administrator record",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/settings/config": {
+      "schema": "WebsiteConfig",
+      "description": "Global website configuration"
+    },
+    "/activities/{activityId}": {
+      "schema": "UserActivity",
+      "description": "Live anonymous user activities"
+    },
+    "/stats/summary": {
+      "schema": "SiteStats",
+      "description": "Global site counters"
+    },
+    "/admins/{adminUid}": {
+      "schema": "AdminUser",
+      "description": "Whitelisted admin users"
+    }
+  }
+}
