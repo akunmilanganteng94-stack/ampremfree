@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, auth, verifyAdminStatus, testFirestoreConnection } from './firebase';
 import { CyberBackground } from './components/CyberBackground';
-import { ChannelGate } from './components/ChannelGate';
 import { Navbar } from './components/Navbar';
 import { HomeDashboard } from './components/HomeDashboard';
 import { VerifMenu } from './components/VerifMenu';
@@ -234,12 +233,6 @@ export default function App() {
             onOpenAdmin={handleOpenAdmin}
           />
         </div>
-      ) : !hasClearedGate ? (
-        /* CHANNEL GATE VIEW (First-time visitors) */
-        <ChannelGate 
-          channelUrl={config.channelLink}
-          onUnlocked={handleUnlockGate}
-        />
       ) : config.maintenanceMode && !isAdminLoggedIn ? (
         /* MAINTENANCE SCREEN VIEW */
         <MaintenanceScreen 

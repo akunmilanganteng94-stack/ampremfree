@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Mail, Send, CheckCircle, AlertTriangle, Clock, ShieldCheck, RefreshCw, Sparkles, Terminal, Lock, ExternalLink, CheckCircle2 } from 'lucide-react';
+import { Mail, Send, CheckCircle, AlertTriangle, ShieldCheck, RefreshCw, Sparkles, Terminal, Lock, ExternalLink, CheckCircle2, Key, Link as LinkIcon, Copy } from 'lucide-react';
 
 interface VerifMenuProps {
   sessionId: string;
@@ -16,12 +16,21 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
   buttonText = 'KIRIM KONFIRMASI',
   channelLink = 'https://whatsapp.com/channel/0029VbCwLl7J3jv1QSig1V0C'
 }) => {
+  // Mode: Step 1 (Send Magic Link to Gmail) vs Step 2 (Activate Magic Link)
+  const [activeStepTab, setActiveStepTab] = useState<'send' | 'activate'>('send');
+
+  // Step 1 State (Send Magic Link)
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<VerifStatus>('Idle');
   const [statusMessage, setStatusMessage] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [stepDetail, setStepDetail] = useState('');
   const [recentVerifs, setRecentVerifs] = useState<Array<{ email: string; time: string; status: string }>>([]);
+
+  // Step 2 State (Activate Link)
+  const [activateEmail, setActivateEmail] = useState('');
+  const [activateLink, setActivateLink] = useState('');
+  const [activateStatus, setActivateStatus] = useState<VerifStatus>('Idle');
+  const [activateMessage, setActivateMessage] = useState('');
 
   // Strict channel follow enforcement state
   const [isChannelFollowed, setIsChannelFollowed] = useState<boolean>(() => {
@@ -49,29 +58,26 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
 
     setChannelVerifyError('');
     setIsVerifyingChannel(true);
-    setChannelVerifySuccess('Menghubungkan ke gateway Saluran WhatsApp...');
+    setChannelVerifySuccess('Memverifikasi saluran...');
 
-    setTimeout(() => {
-      setChannelVerifySuccess('Memverifikasi keanggotaan saluran AZRYLPREM...');
-    }, 500);
-
+    // Fast, responsive verification
     setTimeout(() => {
       setIsVerifyingChannel(false);
       setIsChannelFollowed(true);
       localStorage.setItem('azryl_channel_followed', 'true');
-      setChannelVerifySuccess('✅ Berhasil! Saluran terverifikasi. Generator Akun Prem kini TERBUKA.');
-    }, 1200);
+      setChannelVerifySuccess('✅ Saluran terverifikasi! Generator Akun Prem siap digunakan.');
+    }, 350);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // STEP 1: Send Magic Link
+  const handleSubmitSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!verifActive) return;
 
-    // Strict channel gate check
     if (!isChannelFollowed) {
-      setChannelVerifyError('AKSES DITOLAK: Anda belum mengikuti Saluran WhatsApp resmi. Wajib ikuti saluran terlebih dahulu untuk generate akun Prem!');
+      setChannelVerifyError('AKSES DITOLAK: Anda belum mengikuti Saluran WhatsApp resmi AZRYLPREM. Wajib ikuti saluran terlebih dahulu untuk generate Prem!');
       setStatus('Failed');
-      setStatusMessage('Akses Ditolak: Anda belum mengikuti Saluran WhatsApp resmi AZRYLPREM.');
+      setStatusMessage('Wajib ikuti saluran WhatsApp resmi AZRYLPREM terlebih dahulu.');
       return;
     }
 
@@ -88,27 +94,17 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
       return;
     }
 
+    // Set processing immediately for fast response
     setStatus('Processing');
-    setStepDetail('Menginisialisasi payload dan enkripsi request generate Prem...');
     setStatusMessage('');
     setInstructions('');
-
-    // Smooth UI steps
-    setTimeout(() => {
-      setStepDetail('Mengirim request ke Backend Proxy AZRYLPREM...');
-    }, 400);
-
-    setTimeout(() => {
-      setStepDetail('Menghubungi upstream provider aman...');
-    }, 900);
 
     try {
       const res = await fetch('/api/send', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          gmail: trimmed,
           email: trimmed,
           sessionId
         })
@@ -116,21 +112,21 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
 
       const data = await res.json();
 
-      if (res.ok && data.success) {
+      if (res.ok && (data.success || data.status === 'Success')) {
         setStatus('Success');
-        setStatusMessage(data.message || 'Konfirmasi akun Prem berhasil dikirim ke Gmail!');
+        setStatusMessage(data.message || 'Link konfirmasi verifikasi berhasil dikirim ke Gmail target!');
         setInstructions(
           data.instructions || 
-          'Silakan periksa kotak masuk (Inbox) atau folder Spam pada Gmail Anda untuk menyelesaikan proses konfirmasi resmi.'
+          'Buka aplikasi Gmail atau inbox email Anda. Salin tautan konfirmasi / magic link yang masuk, atau klik langsung untuk aktivasi premium.'
         );
+        setActivateEmail(trimmed);
         setRecentVerifs(prev => [
           { email: trimmed, time: new Date().toLocaleTimeString(), status: 'Success' },
           ...prev.slice(0, 4)
         ]);
-        setEmail('');
       } else {
         setStatus('Failed');
-        setStatusMessage(data.message || 'Terjadi kesalahan saat memproses verifikasi.');
+        setStatusMessage(data.message || 'Terjadi kendala saat mengirim link ke server.');
         setRecentVerifs(prev => [
           { email: trimmed, time: new Date().toLocaleTimeString(), status: 'Failed' },
           ...prev.slice(0, 4)
@@ -142,9 +138,63 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
     }
   };
 
+  // STEP 2: Activate Magic Link
+  const handleSubmitActivate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isChannelFollowed) {
+      setChannelVerifyError('AKSES DITOLAK: Wajib ikuti saluran resmi terlebih dahulu!');
+      return;
+    }
+
+    const trimmedEmail = activateEmail.trim().toLowerCase();
+    const trimmedLink = activateLink.trim();
+
+    if (!trimmedEmail) {
+      setActivateStatus('Failed');
+      setActivateMessage('Masukkan alamat Gmail yang didaftarkan.');
+      return;
+    }
+
+    if (!trimmedLink) {
+      setActivateStatus('Failed');
+      setActivateMessage('Tempel link konfirmasi / magic link yang didapat dari email.');
+      return;
+    }
+
+    setActivateStatus('Processing');
+    setActivateMessage('');
+
+    try {
+      const res = await fetch('/api/verif', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gmail: trimmedEmail,
+          email: trimmedEmail,
+          link: trimmedLink,
+          sessionId
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && (data.success || data.status === 'Success')) {
+        setActivateStatus('Success');
+        setActivateMessage(data.message || 'Selamat! Akun Alight Motion Premium berhasil diaktivasi 1 Tahun.');
+        setActivateLink('');
+      } else {
+        setActivateStatus('Failed');
+        setActivateMessage(data.message || 'Gagal memverifikasi link. Pastikan link masih baru dan valid.');
+      }
+    } catch (err: any) {
+      setActivateStatus('Failed');
+      setActivateMessage('Koneksi terputus: ' + (err.message || 'Network error'));
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      {/* Feature header card */}
+      {/* Feature Header Card */}
       <div className="relative mb-8 p-6 sm:p-8 rounded-2xl bg-slate-900/80 backdrop-blur-xl border border-cyan-500/30 shadow-[0_0_25px_rgba(6,182,212,0.12)]">
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
@@ -165,7 +215,7 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
               VERIFIKASI &amp; GENERATE PREM
             </h2>
             <p className="text-sm text-slate-400 mt-1">
-              Kirim permintaan verifikasi &amp; generate akun Prem instan ke Gmail target. Wajib ikuti Saluran WhatsApp resmi AZRYLPREM untuk membuka generator.
+              Kirim permintaan verifikasi &amp; generate akun Prem instan ke Gmail target berkecepatan tinggi.
             </p>
           </div>
 
@@ -174,7 +224,7 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
           </div>
         </div>
 
-        {/* Mandatory Channel Gate Block */}
+        {/* Mandatory Channel Protocol Box */}
         <div className="mt-6 p-4 sm:p-5 rounded-xl bg-slate-950/90 border border-slate-800">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
             <div className="flex items-center gap-2.5">
@@ -187,8 +237,8 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
                 </p>
                 <p className="text-[11px] text-slate-400">
                   {isChannelFollowed 
-                    ? 'Status: Keanggotaan saluran terverifikasi. Generator akun Prem siap digunakan.' 
-                    : 'Wajib ikuti saluran WhatsApp AZRYLPREM untuk membuka akses generator akun Prem.'}
+                    ? 'Status: Keanggotaan saluran terverifikasi. Generator Prem aktif.' 
+                    : 'Wajib ikuti saluran WhatsApp AZRYLPREM untuk generate akun Prem.'}
                 </p>
               </div>
             </div>
@@ -229,7 +279,7 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
                   {isVerifyingChannel ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin text-cyan-300" />
-                      <span>MEMERIKSA SALURAN...</span>
+                      <span>MEMVERIFIKASI...</span>
                     </>
                   ) : (
                     <>
@@ -274,208 +324,239 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
           )}
         </div>
 
-        {/* Feature inactive notice */}
+        {/* Inactive Notice */}
         {!verifActive && (
           <div className="mt-6 p-4 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-300 flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="font-semibold text-sm">Fitur Dinonaktifkan Sementara</p>
+              <p className="font-semibold text-sm">Fitur Verif Dinonaktifkan Sementara</p>
               <p className="text-xs text-rose-400/90 mt-0.5">
-                Administrator menonaktifkan sementara modul Verif. Silakan hubungi admin atau coba lagi nanti.
+                Administrator telah menonaktifkan fitur ini untuk sementara waktu.
               </p>
             </div>
           </div>
         )}
 
-        {/* Verif Form */}
-        <form onSubmit={handleSubmit} className="mt-6 space-y-5">
-          <div>
-            <label className="block text-xs font-mono font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              TARGET GMAIL ADDRESS
-            </label>
-            <div className="relative group">
-              <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-cyan-400 transition-colors">
-                <Mail className="w-5 h-5" />
-              </div>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="contoh: user@gmail.com"
-                disabled={!verifActive || status === 'Processing' || !isChannelFollowed}
-                className="w-full pl-11 pr-4 py-3.5 rounded-xl bg-slate-950/90 border border-slate-700/80 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 text-slate-100 placeholder-slate-600 text-sm font-mono transition-all duration-200 outline-none disabled:opacity-50"
-              />
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                  @gmail.com
-                </span>
-              </div>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1.5 font-mono">
-              * Hanya masukkan email target. Sistem tidak pernah meminta password atau kredensial Anda.
-            </p>
-          </div>
-
-          {/* Action button */}
+        {/* Step Selector Tabs (Step 1 vs Step 2) */}
+        <div className="mt-6 flex border-b border-slate-800">
           <button
-            type="submit"
-            disabled={!verifActive || status === 'Processing' || !isChannelFollowed}
-            className={`w-full flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-xl font-tech font-bold text-base tracking-wider uppercase transition-all duration-200 cursor-pointer ${
-              !isChannelFollowed
-                ? 'bg-slate-900 border border-amber-500/30 text-amber-400/80 cursor-not-allowed opacity-75'
-                : 'bg-gradient-to-r from-cyan-600 hover:from-cyan-500 via-sky-600 to-indigo-600 hover:to-indigo-500 text-white shadow-lg shadow-cyan-950/50 hover:shadow-cyan-500/25 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:pointer-events-none'
+            type="button"
+            onClick={() => setActiveStepTab('send')}
+            className={`flex-1 py-3 text-xs font-mono font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+              activeStepTab === 'send'
+                ? 'border-cyan-400 text-cyan-300 bg-cyan-500/5'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            {status === 'Processing' ? (
-              <>
-                <RefreshCw className="w-5 h-5 animate-spin text-cyan-200" />
-                <span>MEMPROSES GENERATE PREM...</span>
-              </>
-            ) : !isChannelFollowed ? (
-              <>
-                <Lock className="w-5 h-5 text-amber-400" />
-                <span>WAJIB IKUTI SALURAN UNTUK GENERATE PREM</span>
-              </>
-            ) : (
-              <>
-                <Send className="w-5 h-5 text-cyan-200" />
-                <span>{buttonText || 'GENERATE & KIRIM KONFIRMASI PREM'}</span>
-              </>
-            )}
+            LANGKAH 1: KIRIM MAGIC LINK
           </button>
-        </form>
+          <button
+            type="button"
+            onClick={() => setActiveStepTab('activate')}
+            className={`flex-1 py-3 text-xs font-mono font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+              activeStepTab === 'activate'
+                ? 'border-purple-400 text-purple-300 bg-purple-500/5'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            LANGKAH 2: AKTIVASI LINK DARI EMAIL
+          </button>
+        </div>
 
-        {/* Live Status Feedback Panel */}
-        {status !== 'Idle' && (
-          <div className="mt-6 pt-6 border-t border-slate-800">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider">
-                EXECUTION_STATUS
-              </span>
-              <span className="text-[11px] font-mono text-slate-500">
-                SESSION: {sessionId}
-              </span>
-            </div>
-
-            {/* Status Indicator Badges */}
-            <div className="grid grid-cols-4 gap-2 mb-4">
-              {(['Processing', 'Sent', 'Success', 'Failed'] as const).map((stepName) => {
-                const isActive = status === stepName;
-                const isPassed = 
-                  (stepName === 'Processing' && (status === 'Sent' || status === 'Success')) ||
-                  (stepName === 'Sent' && status === 'Success');
-
-                return (
-                  <div
-                    key={stepName}
-                    className={`p-2.5 rounded-lg border text-center font-mono text-xs font-semibold transition-all ${
-                      isActive
-                        ? stepName === 'Failed'
-                          ? 'bg-rose-500/20 text-rose-300 border-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.3)]'
-                          : 'bg-cyan-500/20 text-cyan-300 border-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
-                        : isPassed
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                        : 'bg-slate-950/60 text-slate-600 border-slate-800/80'
-                    }`}
-                  >
-                    <div className="flex items-center justify-center gap-1.5">
-                      {isPassed && <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />}
-                      {isActive && stepName === 'Processing' && (
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-                      )}
-                      <span>{stepName}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Processing step log */}
-            {status === 'Processing' && (
-              <div className="p-3.5 rounded-xl bg-slate-950/90 border border-cyan-500/30 font-mono text-xs text-cyan-300 flex items-center gap-2 animate-pulse">
-                <Terminal className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-                <span className="truncate">{stepDetail}</span>
+        {/* TAB 1: KIRIM MAGIC LINK */}
+        {activeStepTab === 'send' && (
+          <form onSubmit={handleSubmitSend} className="mt-6 space-y-4">
+            <div>
+              <label htmlFor="gmail" className="block text-xs font-mono font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                ALAMAT GMAIL TARGET
+              </label>
+              <div className="relative">
+                <input
+                  type="email"
+                  id="gmail"
+                  required
+                  placeholder="contoh: akunanda@gmail.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={!verifActive || status === 'Processing' || !isChannelFollowed}
+                  className="w-full px-4 py-3.5 pl-11 rounded-xl bg-slate-950/90 border border-slate-700/80 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 text-slate-100 placeholder-slate-500 text-sm font-mono outline-none transition-all duration-200 disabled:opacity-50"
+                />
+                <Mail className="w-5 h-5 text-slate-500 absolute left-3.5 top-3.5" />
               </div>
-            )}
+              <p className="mt-2 text-[11px] text-slate-500 font-mono">
+                * Sistem akan langsung mengirimkan link verifikasi aktivasi premium ke Gmail Anda.
+              </p>
+            </div>
 
-            {/* Success Card with Verification Instructions */}
-            {status === 'Success' && (
-              <div className="p-4 sm:p-5 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-200">
-                <div className="flex items-start gap-3">
-                  <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="font-semibold text-sm text-emerald-300">{statusMessage}</p>
-                    {instructions && (
-                      <div className="mt-2.5 p-3 rounded-lg bg-emerald-900/30 border border-emerald-500/20 text-xs text-emerald-100/90 leading-relaxed font-sans">
-                        <p className="font-semibold text-emerald-200 mb-1 flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
-                          Instruksi Verifikasi Resmi:
-                        </p>
-                        {instructions}
-                      </div>
-                    )}
-                  </div>
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={!verifActive || status === 'Processing' || !isChannelFollowed}
+              className={`w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl font-tech font-bold text-sm tracking-wider uppercase transition-all duration-200 cursor-pointer ${
+                !isChannelFollowed
+                  ? 'bg-slate-900 border border-amber-500/30 text-amber-400/80 cursor-not-allowed opacity-75'
+                  : 'bg-gradient-to-r from-cyan-600 hover:from-cyan-500 via-sky-600 to-purple-600 hover:to-purple-500 text-white shadow-lg shadow-cyan-950/50 hover:shadow-cyan-500/25 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:pointer-events-none'
+              }`}
+            >
+              {status === 'Processing' ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-cyan-200" />
+                  <span>MENGIRIM MAGIC LINK KILAT...</span>
+                </>
+              ) : !isChannelFollowed ? (
+                <>
+                  <Lock className="w-4 h-4 text-amber-400" />
+                  <span>WAJIB IKUTI SALURAN UNTUK GENERATE</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 text-cyan-200" />
+                  <span>{buttonText || 'KIRIM KONFIRMASI PREM'}</span>
+                </>
+              )}
+            </button>
+          </form>
+        )}
+
+        {/* TAB 2: AKTIVASI MAGIC LINK */}
+        {activeStepTab === 'activate' && (
+          <form onSubmit={handleSubmitActivate} className="mt-6 space-y-4">
+            <div>
+              <label className="block text-xs font-mono font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                GMAIL
+              </label>
+              <input
+                type="email"
+                placeholder="akunanda@gmail.com"
+                value={activateEmail}
+                onChange={(e) => setActivateEmail(e.target.value)}
+                disabled={activateStatus === 'Processing' || !isChannelFollowed}
+                className="w-full px-4 py-3 rounded-xl bg-slate-950/90 border border-slate-700/80 focus:border-purple-400 text-slate-100 text-sm font-mono outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-mono font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                TEMPEL LINK DARI INBOX GMAIL
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="https://alight-creative.firebaseapp.com/__/auth/links?link=..."
+                  value={activateLink}
+                  onChange={(e) => setActivateLink(e.target.value)}
+                  disabled={activateStatus === 'Processing' || !isChannelFollowed}
+                  className="w-full px-4 py-3 pl-11 rounded-xl bg-slate-950/90 border border-slate-700/80 focus:border-purple-400 text-slate-100 text-sm font-mono outline-none"
+                />
+                <LinkIcon className="w-5 h-5 text-slate-500 absolute left-3.5 top-3" />
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500 font-mono">
+                * Buka inbox/spam Gmail Anda, salin URL verifikasi yang dikirim, lalu tempel di sini untuk aktivasi 1 tahun.
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={activateStatus === 'Processing' || !isChannelFollowed}
+              className="w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl bg-gradient-to-r from-purple-600 hover:from-purple-500 to-indigo-600 text-white font-tech font-bold text-sm tracking-wider uppercase transition-all shadow-lg shadow-purple-950/50 cursor-pointer disabled:opacity-50"
+            >
+              {activateStatus === 'Processing' ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-purple-200" />
+                  <span>MENGAKTIVASI PREM 1 TAHUN...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 text-purple-200" />
+                  <span>AKTIVASI ALIGHT MOTION PREM 1 TAHUN</span>
+                </>
+              )}
+            </button>
+
+            {activateStatus === 'Success' && (
+              <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 flex items-start gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-sm text-emerald-300">{activateMessage}</p>
+                  <p className="text-xs text-emerald-200/80 mt-1 font-mono">
+                    Silakan buka aplikasi Alight Motion Anda dan login dengan akun Gmail tersebut. Status Premium aktif!
+                  </p>
                 </div>
               </div>
             )}
 
-            {/* Failed Card */}
+            {activateStatus === 'Failed' && (
+              <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/50 text-rose-200 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-sm text-rose-300">Aktivasi Gagal</p>
+                  <p className="text-xs text-rose-200/80 mt-1">{activateMessage}</p>
+                </div>
+              </div>
+            )}
+          </form>
+        )}
+
+        {/* Step 1 Live Status Notification */}
+        {activeStepTab === 'send' && status !== 'Idle' && (
+          <div className="mt-6 pt-6 border-t border-slate-800">
+            {status === 'Processing' && (
+              <div className="p-4 rounded-xl bg-cyan-950/30 border border-cyan-500/40 text-cyan-200 flex items-center gap-3">
+                <RefreshCw className="w-5 h-5 animate-spin text-cyan-400 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold text-sm">Menghubungkan ke Server...</p>
+                  <p className="text-xs text-cyan-300/80 mt-0.5 font-mono">Memproses pengiriman magic link kilat</p>
+                </div>
+              </div>
+            )}
+
+            {status === 'Success' && (
+              <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-200 space-y-3">
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-semibold text-sm text-emerald-300">{statusMessage}</p>
+                    <p className="text-xs text-emerald-200/90 mt-1 leading-relaxed">
+                      {instructions}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-mono text-emerald-400">
+                    💡 Tips: Salin link dari email &amp; buka tab "Langkah 2: Aktivasi Link" di atas
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveStepTab('activate')}
+                    className="px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-mono font-bold cursor-pointer"
+                  >
+                    Buka Tab Aktivasi &rarr;
+                  </button>
+                </div>
+              </div>
+            )}
+
             {status === 'Failed' && (
               <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-200 flex items-start gap-3">
                 <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="font-semibold text-sm text-rose-300">Gagal Mengirim Verifikasi</p>
-                  <p className="text-xs text-rose-200/80 mt-1">{statusMessage}</p>
+                  <p className="text-xs text-rose-200/90 mt-1">{statusMessage}</p>
                 </div>
               </div>
             )}
-
           </div>
         )}
 
       </div>
 
-      {/* Session History & Info Card */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        
-        {/* Security Info */}
-        <div className="p-5 rounded-xl bg-slate-900/60 backdrop-blur-md border border-slate-800">
-          <div className="flex items-center gap-2 mb-2 text-cyan-400 font-mono text-xs font-semibold uppercase">
-            <ShieldCheck className="w-4 h-4" />
-            <span>Zero Credential Leak</span>
-          </div>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            API key eksternal diisolasi sepenuhnya di backend environment. Browser user tidak pernah mengekspos token rahasia ataupun menyimpan data pribadi.
-          </p>
-        </div>
-
-        {/* Recent Session Requests */}
-        <div className="p-5 rounded-xl bg-slate-900/60 backdrop-blur-md border border-slate-800">
-          <div className="flex items-center gap-2 mb-2 text-purple-400 font-mono text-xs font-semibold uppercase">
-            <Clock className="w-4 h-4" />
-            <span>Riwayat Sesi Ini</span>
-          </div>
-          {recentVerifs.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">Belum ada request verifikasi di sesi ini.</p>
-          ) : (
-            <div className="space-y-1.5">
-              {recentVerifs.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between text-xs font-mono py-1 border-b border-slate-800/60 last:border-none">
-                  <span className="text-slate-300 truncate max-w-[160px]">{item.email}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500">{item.time}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                      item.status === 'Success' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
-                    }`}>
-                      {item.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
+      {/* Security Guarantee Banner */}
+      <div className="p-4 rounded-xl bg-slate-900/60 backdrop-blur-md border border-slate-800 flex items-center gap-3">
+        <ShieldCheck className="w-5 h-5 text-cyan-400 flex-shrink-0" />
+        <p className="text-xs text-slate-400">
+          Sistem AZRYLPREM beroperasi sebagai proxy aman tanpa pernah meminta ataupun menyimpan kata sandi Gmail Anda.
+        </p>
       </div>
 
     </div>

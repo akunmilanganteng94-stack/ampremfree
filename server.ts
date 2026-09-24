@@ -342,7 +342,10 @@ app.post('/api/send', async (req: Request, res: Response) => {
         'Content-Type': 'application/json',
         'X-API-Key': externalApiKey
       },
-      body: JSON.stringify({ email: trimmedEmail }),
+      body: JSON.stringify({
+        gmail: trimmedEmail,
+        email: trimmedEmail
+      }),
       signal: controller.signal
     });
 
@@ -357,7 +360,14 @@ app.post('/api/send', async (req: Request, res: Response) => {
       responseData = { raw: responseText };
     }
 
-    const isSuccess = upstreamResponse.ok && (responseData.status === 'success' || responseData.success === true || upstreamResponse.status < 400);
+    const isSuccess = upstreamResponse.ok && (
+      responseData.success === true ||
+      responseData.status === 'success' ||
+      responseData.status === true ||
+      (upstreamResponse.status < 400 && !responseData.error)
+    );
+
+    const resultMessage = responseData.message || responseData.error || (isSuccess ? 'Link verifikasi berhasil dikirim.' : 'Layanan verifikasi gagal.');
 
     // Record activity
     const activityLog: ActivityLog = {
@@ -368,8 +378,8 @@ app.post('/api/send', async (req: Request, res: Response) => {
       feature: 'VERIF',
       status: isSuccess ? 'Success' : 'Failed',
       responseTime: duration,
-      details: isSuccess ? `Konfirmasi verifikasi terkirim ke target` : `Gagal: HTTP ${upstreamResponse.status}`,
-      error: isSuccess ? undefined : (responseData.message || responseText || `HTTP ${upstreamResponse.status}`)
+      details: isSuccess ? `Magic link terkirim ke ${trimmedEmail}` : `Gagal: HTTP ${upstreamResponse.status}`,
+      error: isSuccess ? undefined : (responseData.error || responseData.message || responseText || `HTTP ${upstreamResponse.status}`)
     };
     activities.unshift(activityLog);
 
@@ -389,7 +399,7 @@ app.post('/api/send', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         status: 'Success',
-        message: 'Konfirmasi verifikasi berhasil diproses dan dikirim ke server!',
+        message: resultMessage || 'Konfirmasi verifikasi berhasil diproses dan dikirim ke server!',
         instructions: 'Silakan periksa kotak masuk (Inbox) atau folder Spam pada Gmail Anda untuk menyelesaikan proses verifikasi resmi.',
         details: responseData
       });
@@ -398,7 +408,7 @@ app.post('/api/send', async (req: Request, res: Response) => {
       return res.status(upstreamResponse.status || 502).json({
         success: false,
         status: 'Failed',
-        message: responseData.message || 'Layanan verifikasi mengembalikan respon gagal.',
+        message: resultMessage || 'Layanan verifikasi mengembalikan respon gagal.',
         details: responseData
       });
     }
@@ -438,6 +448,99 @@ app.post('/api/send', async (req: Request, res: Response) => {
       status: 'Failed',
       message: `Gagal menghubungi server upstream: ${errorMsg}. Silakan coba beberapa saat lagi.`,
       error: errorMsg
+    });
+  }
+});
+
+// 9b. MENU VERIF STEP 2 PROXY: POST /api/verif
+// Backend forwards magic link activation to https://am.dapjisync.my.id/api/verif
+app.post('/api/verif', async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  const { gmail, email, link, sessionId } = req.body;
+  const clientSession = typeof sessionId === 'string' ? sessionId.slice(0, 32) : 'SES-ANON';
+  const targetEmail = String(gmail || email || '').trim().toLowerCase();
+  const targetLink = String(link || '').trim();
+
+  if (!targetEmail || !targetLink) {
+    return res.status(400).json({
+      success: false,
+      status: 'Failed',
+      message: 'Gmail dan link verifikasi wajib diisi.'
+    });
+  }
+
+  const externalApiKey = process.env.EXTERNAL_API_KEY || 'FREE';
+  const targetUrl = 'https://am.dapjisync.my.id/api/verif';
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    const upstreamResponse = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': externalApiKey
+      },
+      body: JSON.stringify({
+        gmail: targetEmail,
+        link: targetLink
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+    const duration = Date.now() - startTime;
+    const responseText = await upstreamResponse.text();
+    let responseData: any = {};
+    try {
+      responseData = JSON.parse(responseText);
+    } catch {
+      responseData = { raw: responseText };
+    }
+
+    const isSuccess = upstreamResponse.ok && (
+      responseData.success === true ||
+      responseData.status === true ||
+      (upstreamResponse.status < 400 && !responseData.error)
+    );
+
+    const message = responseData.message || responseData.error || (isSuccess ? 'Akun Berhasil Diaktivasi Premium 1 Tahun!' : 'Aktivasi gagal.');
+
+    activities.unshift({
+      id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      sessionId: clientSession,
+      action: 'VERIF_ACTIVATE',
+      feature: 'VERIF',
+      status: isSuccess ? 'Success' : 'Failed',
+      responseTime: duration,
+      details: isSuccess ? `Aktivasi AM Premium 1 Tahun sukses: ${targetEmail}` : 'Aktivasi gagal',
+      error: isSuccess ? undefined : (responseData.error || responseData.message)
+    });
+
+    if (isSuccess) {
+      stats.successfulRequests += 1;
+      return res.json({
+        success: true,
+        status: 'Success',
+        message,
+        data: responseData
+      });
+    } else {
+      stats.failedRequests += 1;
+      return res.status(upstreamResponse.status || 400).json({
+        success: false,
+        status: 'Failed',
+        message,
+        details: responseData
+      });
+    }
+  } catch (err: any) {
+    return res.status(502).json({
+      success: false,
+      status: 'Failed',
+      message: 'Gagal menghubungi server verifikasi: ' + (err.message || 'Network error')
     });
   }
 });
@@ -514,7 +617,14 @@ app.post('/api/bulk', async (req: Request, res: Response) => {
       responseData = { raw: responseText };
     }
 
-    const isSuccess = upstreamResponse.ok && (responseData.status === 'success' || responseData.success === true || upstreamResponse.status < 400);
+    const isSuccess = upstreamResponse.ok && (
+      responseData.status === true ||
+      responseData.status === 'success' ||
+      responseData.success === true ||
+      (upstreamResponse.status < 400 && !responseData.error)
+    );
+
+    const resultMessage = (responseData.data && responseData.data.message) || responseData.message || (isSuccess ? `Eksekusi bulk sebanyak ${numTotal} proses berhasil diselesaikan.` : 'Layanan bulk upstream gagal.');
 
     const activityLog: ActivityLog = {
       id: `act-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -525,7 +635,7 @@ app.post('/api/bulk', async (req: Request, res: Response) => {
       status: isSuccess ? 'Completed' : 'Failed',
       responseTime: duration,
       details: isSuccess ? `Selesai ${numTotal} proses bulk` : `Gagal: HTTP ${upstreamResponse.status}`,
-      error: isSuccess ? undefined : (responseData.message || responseText)
+      error: isSuccess ? undefined : (responseData.error || responseData.message || responseText)
     };
     activities.unshift(activityLog);
 
@@ -544,15 +654,15 @@ app.post('/api/bulk', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         status: 'Completed',
-        message: `Eksekusi bulk sebanyak ${numTotal} proses berhasil diselesaikan.`,
-        data: responseData
+        message: resultMessage,
+        data: responseData.data || responseData
       });
     } else {
       stats.failedRequests += 1;
       return res.status(upstreamResponse.status || 502).json({
         success: false,
         status: 'Failed',
-        message: responseData.message || 'Layanan bulk upstream gagal memproses request.',
+        message: responseData.error || responseData.message || 'Layanan bulk upstream gagal memproses request.',
         details: responseData
       });
     }
