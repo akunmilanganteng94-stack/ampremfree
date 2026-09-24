@@ -315,16 +315,7 @@ app.post('/api/send', async (req: Request, res: Response) => {
     return res.status(400).json({
       success: false,
       status: 'Failed',
-      message: 'Format email tidak valid.'
-    });
-  }
-
-  // Strictly enforce Gmail if requested
-  if (!trimmedEmail.endsWith('@gmail.com') && !trimmedEmail.endsWith('@googlemail.com')) {
-    return res.status(400).json({
-      success: false,
-      status: 'Failed',
-      message: 'Hanya alamat Gmail (@gmail.com) yang didukung untuk menu verifikasi ini.'
+      message: 'Format alamat email tidak valid.'
     });
   }
 
@@ -343,8 +334,7 @@ app.post('/api/send', async (req: Request, res: Response) => {
         'X-API-Key': externalApiKey
       },
       body: JSON.stringify({
-        gmail: trimmedEmail,
-        email: trimmedEmail
+        gmail: trimmedEmail
       }),
       signal: controller.signal
     });
@@ -459,7 +449,14 @@ app.post('/api/verif', async (req: Request, res: Response) => {
   const { gmail, email, link, sessionId } = req.body;
   const clientSession = typeof sessionId === 'string' ? sessionId.slice(0, 32) : 'SES-ANON';
   const targetEmail = String(gmail || email || '').trim().toLowerCase();
-  const targetLink = String(link || '').trim();
+  let targetLink = String(link || '').trim();
+
+  // Extract URL if user pasted surrounding text
+  const urlMatch = targetLink.match(/https?:\/\/[^\s"'<>]+/i);
+  if (urlMatch) {
+    targetLink = urlMatch[0];
+  }
+  targetLink = targetLink.replace(/[.,)]+$/, '');
 
   if (!targetEmail || !targetLink) {
     return res.status(400).json({

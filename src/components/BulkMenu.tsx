@@ -76,8 +76,9 @@ export const BulkMenu: React.FC<BulkMenuProps> = ({
 
   const handleVerifyChannel = () => {
     if (!hasClickedFollow && sessionStorage.getItem('azryl_channel_clicked') !== 'true') {
-      setChannelVerifyError('⚠️ Anda WAJIB membuka dan mengikuti Saluran WhatsApp terlebih dahulu sebelum verifikasi!');
-      return;
+      window.open(channelLink, '_blank', 'noopener,noreferrer');
+      setHasClickedFollow(true);
+      sessionStorage.setItem('azryl_channel_clicked', 'true');
     }
 
     setChannelVerifyError('');
@@ -89,7 +90,7 @@ export const BulkMenu: React.FC<BulkMenuProps> = ({
       setIsChannelFollowed(true);
       localStorage.setItem('azryl_channel_followed', 'true');
       setChannelVerifySuccess('✅ Berhasil! Saluran terverifikasi. Bulk Generator Prem kini TERBUKA.');
-    }, 350);
+    }, 250);
   };
 
   const handleTotalChange = (val: number) => {

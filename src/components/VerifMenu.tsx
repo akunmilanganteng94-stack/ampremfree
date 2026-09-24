@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
-import { Mail, Send, CheckCircle, AlertTriangle, ShieldCheck, RefreshCw, Sparkles, Terminal, Lock, ExternalLink, CheckCircle2, Key, Link as LinkIcon, Copy } from 'lucide-react';
+import { 
+  Mail, 
+  Send, 
+  CheckCircle, 
+  AlertTriangle, 
+  ShieldCheck, 
+  RefreshCw, 
+  Sparkles, 
+  Lock, 
+  ExternalLink, 
+  CheckCircle2, 
+  Link as LinkIcon, 
+  ArrowRight,
+  RotateCcw
+} from 'lucide-react';
 
 interface VerifMenuProps {
   sessionId: string;
@@ -8,7 +22,7 @@ interface VerifMenuProps {
   channelLink?: string;
 }
 
-type VerifStatus = 'Idle' | 'Processing' | 'Sent' | 'Success' | 'Failed';
+type VerifStatus = 'Idle' | 'Processing' | 'Success' | 'Failed';
 
 export const VerifMenu: React.FC<VerifMenuProps> = ({
   sessionId,
@@ -16,21 +30,25 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
   buttonText = 'KIRIM KONFIRMASI',
   channelLink = 'https://whatsapp.com/channel/0029VbCwLl7J3jv1QSig1V0C'
 }) => {
-  // Mode: Step 1 (Send Magic Link to Gmail) vs Step 2 (Activate Magic Link)
+  // Mode: Step 1 (Send Magic Link) vs Step 2 (Activate Magic Link)
   const [activeStepTab, setActiveStepTab] = useState<'send' | 'activate'>('send');
 
   // Step 1 State (Send Magic Link)
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState<string>(() => {
+    return localStorage.getItem('azryl_last_verif_email') || '';
+  });
   const [status, setStatus] = useState<VerifStatus>('Idle');
   const [statusMessage, setStatusMessage] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [recentVerifs, setRecentVerifs] = useState<Array<{ email: string; time: string; status: string }>>([]);
 
   // Step 2 State (Activate Link)
-  const [activateEmail, setActivateEmail] = useState('');
+  const [activateEmail, setActivateEmail] = useState<string>(() => {
+    return localStorage.getItem('azryl_last_verif_email') || '';
+  });
   const [activateLink, setActivateLink] = useState('');
   const [activateStatus, setActivateStatus] = useState<VerifStatus>('Idle');
   const [activateMessage, setActivateMessage] = useState('');
+  const [activationDone, setActivationDone] = useState(false);
 
   // Strict channel follow enforcement state
   const [isChannelFollowed, setIsChannelFollowed] = useState<boolean>(() => {
@@ -40,33 +58,31 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
     return sessionStorage.getItem('azryl_channel_clicked') === 'true';
   });
   const [isVerifyingChannel, setIsVerifyingChannel] = useState<boolean>(false);
-  const [channelVerifyError, setChannelVerifyError] = useState<string>('');
   const [channelVerifySuccess, setChannelVerifySuccess] = useState<string>('');
 
   const handleOpenChannel = () => {
     setHasClickedFollow(true);
     sessionStorage.setItem('azryl_channel_clicked', 'true');
-    setChannelVerifyError('');
     window.open(channelLink, '_blank', 'noopener,noreferrer');
   };
 
   const handleVerifyChannel = () => {
+    // If not clicked yet, open the channel link in a new tab smoothly
     if (!hasClickedFollow && sessionStorage.getItem('azryl_channel_clicked') !== 'true') {
-      setChannelVerifyError('⚠️ Anda WAJIB membuka dan mengikuti Saluran WhatsApp terlebih dahulu sebelum verifikasi!');
-      return;
+      window.open(channelLink, '_blank', 'noopener,noreferrer');
+      setHasClickedFollow(true);
+      sessionStorage.setItem('azryl_channel_clicked', 'true');
     }
 
-    setChannelVerifyError('');
     setIsVerifyingChannel(true);
     setChannelVerifySuccess('Memverifikasi saluran...');
 
-    // Fast, responsive verification
     setTimeout(() => {
       setIsVerifyingChannel(false);
       setIsChannelFollowed(true);
       localStorage.setItem('azryl_channel_followed', 'true');
       setChannelVerifySuccess('✅ Saluran terverifikasi! Generator Akun Prem siap digunakan.');
-    }, 350);
+    }, 250);
   };
 
   // STEP 1: Send Magic Link
@@ -74,11 +90,11 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
     e.preventDefault();
     if (!verifActive) return;
 
+    // Auto verify channel if not yet verified
     if (!isChannelFollowed) {
-      setChannelVerifyError('AKSES DITOLAK: Anda belum mengikuti Saluran WhatsApp resmi AZRYLPREM. Wajib ikuti saluran terlebih dahulu untuk generate Prem!');
-      setStatus('Failed');
-      setStatusMessage('Wajib ikuti saluran WhatsApp resmi AZRYLPREM terlebih dahulu.');
-      return;
+      window.open(channelLink, '_blank', 'noopener,noreferrer');
+      setIsChannelFollowed(true);
+      localStorage.setItem('azryl_channel_followed', 'true');
     }
 
     const trimmed = email.trim().toLowerCase();
@@ -88,13 +104,13 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
       return;
     }
 
-    if (!trimmed.endsWith('@gmail.com') && !trimmed.endsWith('@googlemail.com')) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmed)) {
       setStatus('Failed');
-      setStatusMessage('Alamat email harus menggunakan domain @gmail.com.');
+      setStatusMessage('Format alamat email tidak valid.');
       return;
     }
 
-    // Set processing immediately for fast response
     setStatus('Processing');
     setStatusMessage('');
     setInstructions('');
@@ -110,27 +126,20 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
         })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (res.ok && (data.success || data.status === 'Success')) {
         setStatus('Success');
         setStatusMessage(data.message || 'Link konfirmasi verifikasi berhasil dikirim ke Gmail target!');
         setInstructions(
           data.instructions || 
-          'Buka aplikasi Gmail atau inbox email Anda. Salin tautan konfirmasi / magic link yang masuk, atau klik langsung untuk aktivasi premium.'
+          'Buka aplikasi Gmail atau inbox email Anda. Salin tautan konfirmasi / magic link yang masuk, lalu tempel di bawah untuk aktivasi premium 1 tahun.'
         );
         setActivateEmail(trimmed);
-        setRecentVerifs(prev => [
-          { email: trimmed, time: new Date().toLocaleTimeString(), status: 'Success' },
-          ...prev.slice(0, 4)
-        ]);
+        localStorage.setItem('azryl_last_verif_email', trimmed);
       } else {
         setStatus('Failed');
-        setStatusMessage(data.message || 'Terjadi kendala saat mengirim link ke server.');
-        setRecentVerifs(prev => [
-          { email: trimmed, time: new Date().toLocaleTimeString(), status: 'Failed' },
-          ...prev.slice(0, 4)
-        ]);
+        setStatusMessage(data.message || data.error || 'Terjadi kendala saat mengirim link ke server.');
       }
     } catch (err: any) {
       setStatus('Failed');
@@ -141,25 +150,32 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
   // STEP 2: Activate Magic Link
   const handleSubmitActivate = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Auto verify channel if needed
     if (!isChannelFollowed) {
-      setChannelVerifyError('AKSES DITOLAK: Wajib ikuti saluran resmi terlebih dahulu!');
-      return;
+      setIsChannelFollowed(true);
+      localStorage.setItem('azryl_channel_followed', 'true');
     }
 
-    const trimmedEmail = activateEmail.trim().toLowerCase();
-    const trimmedLink = activateLink.trim();
+    const targetEmail = (activateEmail || email).trim().toLowerCase();
+    let rawLink = activateLink.trim();
 
-    if (!trimmedEmail) {
+    if (!targetEmail) {
       setActivateStatus('Failed');
       setActivateMessage('Masukkan alamat Gmail yang didaftarkan.');
       return;
     }
 
-    if (!trimmedLink) {
+    if (!rawLink) {
       setActivateStatus('Failed');
       setActivateMessage('Tempel link konfirmasi / magic link yang didapat dari email.');
       return;
     }
+
+    // Extract clean URL in case user pasted whole email content
+    const urlMatch = rawLink.match(/https?:\/\/[^\s"'<>]+/i);
+    let cleanLink = urlMatch ? urlMatch[0] : rawLink;
+    cleanLink = cleanLink.replace(/[.,)]+$/, '');
 
     setActivateStatus('Processing');
     setActivateMessage('');
@@ -169,27 +185,39 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          gmail: trimmedEmail,
-          email: trimmedEmail,
-          link: trimmedLink,
+          gmail: targetEmail,
+          email: targetEmail,
+          link: cleanLink,
           sessionId
         })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (res.ok && (data.success || data.status === 'Success')) {
         setActivateStatus('Success');
-        setActivateMessage(data.message || 'Selamat! Akun Alight Motion Premium berhasil diaktivasi 1 Tahun.');
+        setActivationDone(true);
+        setActivateMessage(data.message || 'Alight Motion Premium berhasil diaktifkan untuk akun Anda!');
         setActivateLink('');
       } else {
         setActivateStatus('Failed');
-        setActivateMessage(data.message || 'Gagal memverifikasi link. Pastikan link masih baru dan valid.');
+        setActivateMessage(data.message || data.error || 'Magic link salah, kadaluarsa, atau sudah digunakan. Silakan kirim magic link baru.');
       }
     } catch (err: any) {
       setActivateStatus('Failed');
-      setActivateMessage('Koneksi terputus: ' + (err.message || 'Network error'));
+      setActivateMessage('Koneksi terputus ke server: ' + (err.message || 'Network error'));
     }
+  };
+
+  const handleReset = () => {
+    setStatus('Idle');
+    setStatusMessage('');
+    setInstructions('');
+    setActivateStatus('Idle');
+    setActivateMessage('');
+    setActivationDone(false);
+    setActivateLink('');
+    setActiveStepTab('send');
   };
 
   return (
@@ -215,7 +243,7 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
               VERIFIKASI &amp; GENERATE PREM
             </h2>
             <p className="text-sm text-slate-400 mt-1">
-              Kirim permintaan verifikasi &amp; generate akun Prem instan ke Gmail target berkecepatan tinggi.
+              Kirim magic link ke Gmail target dan aktivasi Alight Motion Premium 1 Tahun tanpa error.
             </p>
           </div>
 
@@ -249,60 +277,40 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' 
                   : 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
               }`}>
-                {isChannelFollowed ? 'SALURAN TERVERIFIKASI' : 'AKSES TERKUNCI'}
+                {isChannelFollowed ? 'SALURAN TERVERIFIKASI' : 'KLIK UNTUK BUKA'}
               </span>
             </div>
           </div>
 
           {!isChannelFollowed ? (
-            <div className="mt-4 space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleOpenChannel}
-                  className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-tech font-bold text-xs tracking-wider uppercase transition-all shadow-md shadow-emerald-950/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>1. BUKA &amp; IKUTI SALURAN WA</span>
-                </button>
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={handleOpenChannel}
+                className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-tech font-bold text-xs tracking-wider uppercase transition-all shadow-md shadow-emerald-950/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>1. BUKA &amp; IKUTI SALURAN WA</span>
+              </button>
 
-                <button
-                  type="button"
-                  onClick={handleVerifyChannel}
-                  disabled={isVerifyingChannel}
-                  className={`flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl font-tech font-bold text-xs tracking-wider uppercase transition-all cursor-pointer ${
-                    hasClickedFollow
-                      ? 'bg-gradient-to-r from-cyan-600 hover:from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-950/40 hover:scale-[1.02] active:scale-[0.98]'
-                      : 'bg-slate-900 text-slate-400 border border-slate-800 hover:border-slate-700'
-                  }`}
-                >
-                  {isVerifyingChannel ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin text-cyan-300" />
-                      <span>MEMVERIFIKASI...</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4 text-cyan-300" />
-                      <span>2. VERIFIKASI IKUTI SALURAN</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {channelVerifyError && (
-                <div className="p-2.5 rounded-lg bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs font-mono flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-                  <span>{channelVerifyError}</span>
-                </div>
-              )}
-
-              {channelVerifySuccess && !isChannelFollowed && (
-                <div className="p-2.5 rounded-lg bg-cyan-950/40 border border-cyan-500/40 text-cyan-300 text-xs font-mono flex items-center gap-2">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-                  <span>{channelVerifySuccess}</span>
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={handleVerifyChannel}
+                disabled={isVerifyingChannel}
+                className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl bg-gradient-to-r from-cyan-600 hover:from-cyan-500 to-indigo-600 text-white font-tech font-bold text-xs tracking-wider uppercase transition-all shadow-md shadow-cyan-950/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+              >
+                {isVerifyingChannel ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-cyan-200" />
+                    <span>MEMVERIFIKASI...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-cyan-200" />
+                    <span>2. VERIFIKASI SALURAN</span>
+                  </>
+                )}
+              </button>
             </div>
           ) : (
             <div className="mt-3 flex items-center justify-between text-xs font-mono">
@@ -337,7 +345,7 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
           </div>
         )}
 
-        {/* Step Selector Tabs (Step 1 vs Step 2) */}
+        {/* Step Selector Tabs */}
         <div className="mt-6 flex border-b border-slate-800">
           <button
             type="button"
@@ -365,72 +373,184 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
 
         {/* TAB 1: KIRIM MAGIC LINK */}
         {activeStepTab === 'send' && (
-          <form onSubmit={handleSubmitSend} className="mt-6 space-y-4">
-            <div>
-              <label htmlFor="gmail" className="block text-xs font-mono font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                ALAMAT GMAIL TARGET
-              </label>
-              <div className="relative">
-                <input
-                  type="email"
-                  id="gmail"
-                  required
-                  placeholder="contoh: akunanda@gmail.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={!verifActive || status === 'Processing' || !isChannelFollowed}
-                  className="w-full px-4 py-3.5 pl-11 rounded-xl bg-slate-950/90 border border-slate-700/80 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 text-slate-100 placeholder-slate-500 text-sm font-mono outline-none transition-all duration-200 disabled:opacity-50"
-                />
-                <Mail className="w-5 h-5 text-slate-500 absolute left-3.5 top-3.5" />
+          <div className="mt-6 space-y-6">
+            <form onSubmit={handleSubmitSend} className="space-y-4">
+              <div>
+                <label htmlFor="gmail" className="block text-xs font-mono font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                  ALAMAT GMAIL TARGET
+                </label>
+                <div className="relative">
+                  <input
+                    type="email"
+                    id="gmail"
+                    required
+                    placeholder="contoh: akunanda@gmail.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setActivateEmail(e.target.value);
+                    }}
+                    disabled={!verifActive || status === 'Processing'}
+                    className="w-full px-4 py-3.5 pl-11 rounded-xl bg-slate-950/90 border border-slate-700/80 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 text-slate-100 placeholder-slate-500 text-sm font-mono outline-none transition-all duration-200"
+                  />
+                  <Mail className="w-5 h-5 text-slate-500 absolute left-3.5 top-3.5" />
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500 font-mono">
+                  * Masukkan Gmail Anda. Sistem akan mengirimkan magic link verifikasi resmi dari server Alight Motion.
+                </p>
               </div>
-              <p className="mt-2 text-[11px] text-slate-500 font-mono">
-                * Sistem akan langsung mengirimkan link verifikasi aktivasi premium ke Gmail Anda.
-              </p>
-            </div>
 
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={!verifActive || status === 'Processing' || !isChannelFollowed}
-              className={`w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl font-tech font-bold text-sm tracking-wider uppercase transition-all duration-200 cursor-pointer ${
-                !isChannelFollowed
-                  ? 'bg-slate-900 border border-amber-500/30 text-amber-400/80 cursor-not-allowed opacity-75'
-                  : 'bg-gradient-to-r from-cyan-600 hover:from-cyan-500 via-sky-600 to-purple-600 hover:to-purple-500 text-white shadow-lg shadow-cyan-950/50 hover:shadow-cyan-500/25 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:pointer-events-none'
-              }`}
-            >
-              {status === 'Processing' ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin text-cyan-200" />
-                  <span>MENGIRIM MAGIC LINK KILAT...</span>
-                </>
-              ) : !isChannelFollowed ? (
-                <>
-                  <Lock className="w-4 h-4 text-amber-400" />
-                  <span>WAJIB IKUTI SALURAN UNTUK GENERATE</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4 text-cyan-200" />
-                  <span>{buttonText || 'KIRIM KONFIRMASI PREM'}</span>
-                </>
-              )}
-            </button>
-          </form>
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={!verifActive || status === 'Processing'}
+                className="w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl font-tech font-bold text-sm tracking-wider uppercase transition-all duration-200 cursor-pointer bg-gradient-to-r from-cyan-600 hover:from-cyan-500 via-sky-600 to-purple-600 hover:to-purple-500 text-white shadow-lg shadow-cyan-950/50 hover:shadow-cyan-500/25 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {status === 'Processing' ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-cyan-200" />
+                    <span>MENGIRIM MAGIC LINK KILAT...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 text-cyan-200" />
+                    <span>{buttonText || 'KIRIM MAGIC LINK KE GMAIL'}</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* If sending failed */}
+            {status === 'Failed' && (
+              <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-200 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-semibold text-sm text-rose-300">Pengiriman Gagal</p>
+                  <p className="text-xs text-rose-200/90 mt-1">{statusMessage}</p>
+                </div>
+              </div>
+            )}
+
+            {/* If sending succeeded: Display Success & Immediate Step 2 Box */}
+            {status === 'Success' && (
+              <div className="p-5 rounded-2xl bg-slate-950/95 border border-emerald-500/40 shadow-xl space-y-5">
+                <div className="flex items-start gap-3 pb-4 border-b border-emerald-500/20">
+                  <CheckCircle className="w-6 h-6 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-bold text-base text-emerald-300">{statusMessage}</p>
+                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                      {instructions}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <a
+                        href="https://mail.google.com/mail/u/0/#inbox"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-mono font-bold flex items-center gap-1.5 transition-all"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Buka Inbox Gmail</span>
+                      </a>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Inline Step 2 Input */}
+                <form onSubmit={handleSubmitActivate} className="space-y-3 pt-1">
+                  <div>
+                    <label className="block text-xs font-mono font-bold text-purple-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <LinkIcon className="w-4 h-4 text-purple-400" />
+                      <span>LANGKAH 2: TEMPEL MAGIC LINK DARI GMAIL</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        required
+                        placeholder="https://alight-creative.firebaseapp.com/__/auth/links?link=..."
+                        value={activateLink}
+                        onChange={(e) => setActivateLink(e.target.value)}
+                        disabled={activateStatus === 'Processing'}
+                        className="w-full px-4 py-3 pl-11 rounded-xl bg-slate-900 border border-purple-500/50 focus:border-purple-400 text-slate-100 text-xs sm:text-sm font-mono outline-none"
+                      />
+                      <LinkIcon className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5" />
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-slate-400 font-mono">
+                      * Salin URL / tautan masuk yang dikirim ke Gmail Anda, lalu tempel di sini.
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={activateStatus === 'Processing'}
+                    className="w-full flex items-center justify-center gap-2 py-3 px-6 rounded-xl bg-gradient-to-r from-purple-600 hover:from-purple-500 to-indigo-600 text-white font-tech font-bold text-sm tracking-wider uppercase transition-all shadow-lg shadow-purple-950/50 cursor-pointer disabled:opacity-50"
+                  >
+                    {activateStatus === 'Processing' ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin text-purple-200" />
+                        <span>MEMVERIFIKASI &amp; MENGAKTIVASI 1 TAHUN...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 text-purple-200" />
+                        <span>PROSES VERIFIKASI &amp; AKTIVASI PREM 1 TAHUN</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {/* Activation results */}
+                {activateStatus === 'Success' && (
+                  <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 space-y-2">
+                    <div className="flex items-start gap-2.5">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold text-sm text-emerald-300">{activateMessage}</p>
+                        <p className="text-xs text-emerald-200/90 mt-1 font-mono">
+                          Status: Alight Motion Premium 1 Tahun Aktif • Silakan login di aplikasi Alight Motion dengan Gmail tersebut!
+                        </p>
+                      </div>
+                    </div>
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={handleReset}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Aktivasi Akun Lain</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {activateStatus === 'Failed' && (
+                  <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/50 text-rose-200 flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-sm text-rose-300">Verifikasi Gagal</p>
+                      <p className="text-xs text-rose-200/80 mt-1">{activateMessage}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
-        {/* TAB 2: AKTIVASI MAGIC LINK */}
+        {/* TAB 2: AKTIVASI MAGIC LINK SECARA TERPISAH */}
         {activeStepTab === 'activate' && (
           <form onSubmit={handleSubmitActivate} className="mt-6 space-y-4">
             <div>
               <label className="block text-xs font-mono font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                GMAIL
+                ALAMAT GMAIL TARGET
               </label>
               <input
                 type="email"
+                required
                 placeholder="akunanda@gmail.com"
                 value={activateEmail}
                 onChange={(e) => setActivateEmail(e.target.value)}
-                disabled={activateStatus === 'Processing' || !isChannelFollowed}
+                disabled={activateStatus === 'Processing'}
                 className="w-full px-4 py-3 rounded-xl bg-slate-950/90 border border-slate-700/80 focus:border-purple-400 text-slate-100 text-sm font-mono outline-none"
               />
             </div>
@@ -442,10 +562,11 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
               <div className="relative">
                 <input
                   type="text"
+                  required
                   placeholder="https://alight-creative.firebaseapp.com/__/auth/links?link=..."
                   value={activateLink}
                   onChange={(e) => setActivateLink(e.target.value)}
-                  disabled={activateStatus === 'Processing' || !isChannelFollowed}
+                  disabled={activateStatus === 'Processing'}
                   className="w-full px-4 py-3 pl-11 rounded-xl bg-slate-950/90 border border-slate-700/80 focus:border-purple-400 text-slate-100 text-sm font-mono outline-none"
                 />
                 <LinkIcon className="w-5 h-5 text-slate-500 absolute left-3.5 top-3" />
@@ -457,7 +578,7 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
 
             <button
               type="submit"
-              disabled={activateStatus === 'Processing' || !isChannelFollowed}
+              disabled={activateStatus === 'Processing'}
               className="w-full flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl bg-gradient-to-r from-purple-600 hover:from-purple-500 to-indigo-600 text-white font-tech font-bold text-sm tracking-wider uppercase transition-all shadow-lg shadow-purple-950/50 cursor-pointer disabled:opacity-50"
             >
               {activateStatus === 'Processing' ? (
@@ -468,20 +589,30 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 text-purple-200" />
-                  <span>AKTIVASI ALIGHT MOTION PREM 1 TAHUN</span>
+                  <span>PROSES VERIFIKASI &amp; AKTIVASI PREM 1 TAHUN</span>
                 </>
               )}
             </button>
 
             {activateStatus === 'Success' && (
-              <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 flex items-start gap-3">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-bold text-sm text-emerald-300">{activateMessage}</p>
-                  <p className="text-xs text-emerald-200/80 mt-1 font-mono">
-                    Silakan buka aplikasi Alight Motion Anda dan login dengan akun Gmail tersebut. Status Premium aktif!
-                  </p>
+              <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-emerald-200 space-y-3">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-sm text-emerald-300">{activateMessage}</p>
+                    <p className="text-xs text-emerald-200/80 mt-1 font-mono">
+                      Status: Premium 1 Tahun Aktif • Silakan buka aplikasi Alight Motion Anda dan login dengan akun Gmail tersebut.
+                    </p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Aktivasi Akun Lain</span>
+                </button>
               </div>
             )}
 
@@ -495,58 +626,6 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
               </div>
             )}
           </form>
-        )}
-
-        {/* Step 1 Live Status Notification */}
-        {activeStepTab === 'send' && status !== 'Idle' && (
-          <div className="mt-6 pt-6 border-t border-slate-800">
-            {status === 'Processing' && (
-              <div className="p-4 rounded-xl bg-cyan-950/30 border border-cyan-500/40 text-cyan-200 flex items-center gap-3">
-                <RefreshCw className="w-5 h-5 animate-spin text-cyan-400 flex-shrink-0" />
-                <div>
-                  <p className="font-semibold text-sm">Menghubungkan ke Server...</p>
-                  <p className="text-xs text-cyan-300/80 mt-0.5 font-mono">Memproses pengiriman magic link kilat</p>
-                </div>
-              </div>
-            )}
-
-            {status === 'Success' && (
-              <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-200 space-y-3">
-                <div className="flex items-start gap-3">
-                  <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="font-semibold text-sm text-emerald-300">{statusMessage}</p>
-                    <p className="text-xs text-emerald-200/90 mt-1 leading-relaxed">
-                      {instructions}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-[11px] font-mono text-emerald-400">
-                    💡 Tips: Salin link dari email &amp; buka tab "Langkah 2: Aktivasi Link" di atas
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setActiveStepTab('activate')}
-                    className="px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-mono font-bold cursor-pointer"
-                  >
-                    Buka Tab Aktivasi &rarr;
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {status === 'Failed' && (
-              <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-500/40 text-rose-200 flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="font-semibold text-sm text-rose-300">Gagal Mengirim Verifikasi</p>
-                  <p className="text-xs text-rose-200/90 mt-1">{statusMessage}</p>
-                </div>
-              </div>
-            )}
-          </div>
         )}
 
       </div>
