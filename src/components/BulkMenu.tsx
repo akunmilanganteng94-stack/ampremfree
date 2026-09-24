@@ -148,23 +148,66 @@ export const BulkMenu: React.FC<BulkMenuProps> = ({
     setGeneratedAccounts([]);
 
     try {
-      const res = await fetch('/api/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          total,
-          sessionId
-        })
-      });
+      let isSuccess = false;
+      let rawEmails: any[] = [];
+      let finalMessage = '';
 
-      const data = await res.json();
+      // 1. First attempt via backend proxy
+      try {
+        const res = await fetch('/api/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            total,
+            sessionId
+          })
+        });
 
-      if (res.ok && data.success) {
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok && data.success) {
+          isSuccess = true;
+          finalMessage = data.message || `Eksekusi bulk sebanyak ${total} akun berhasil!`;
+          rawEmails = data.data?.emails || data.data?.data?.emails || [];
+        } else if (res.status === 400 && data.message) {
+          setStep('Failed');
+          setStatusMessage(data.message);
+          return;
+        }
+      } catch (proxyErr) {
+        console.warn('Backend proxy unavailable, trying direct upstream fallback...', proxyErr);
+      }
+
+      // 2. Resilient fallback: direct to upstream API
+      if (!isSuccess) {
+        try {
+          const directRes = await fetch('https://am.dapjisync.my.id/api/bulk', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': 'FREE'
+            },
+            body: JSON.stringify({ total })
+          });
+
+          const directData = await directRes.json().catch(() => ({}));
+          if (directRes.ok && (directData.success || directData.status === 'Completed' || directData.emails || directData.data)) {
+            isSuccess = true;
+            finalMessage = directData.message || `Eksekusi bulk sebanyak ${total} akun berhasil!`;
+            rawEmails = directData.emails || directData.data?.emails || [];
+          } else {
+            finalMessage = directData.error || directData.message || 'Layanan bulk upstream gagal memproses request.';
+          }
+        } catch (directErr: any) {
+          finalMessage = 'Gagal menghubungi server bulk: ' + (directErr.message || 'Network error');
+        }
+      }
+
+      if (isSuccess) {
         setStep('Completed');
-        setStatusMessage(data.message || `Eksekusi bulk sebanyak ${total} akun berhasil!`);
+        setStatusMessage(finalMessage || `Eksekusi bulk sebanyak ${total} akun berhasil!`);
         
         // Extract accounts from response
-        const rawEmails = data.data?.emails || data.data?.data?.emails || [];
         if (Array.isArray(rawEmails) && rawEmails.length > 0) {
           const timestamp = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           const mapped: GeneratedAccount[] = rawEmails.map((item: any) => {
@@ -193,7 +236,7 @@ export const BulkMenu: React.FC<BulkMenuProps> = ({
         }
       } else {
         setStep('Failed');
-        setStatusMessage(data.message || 'Layanan bulk upstream gagal memproses request.');
+        setStatusMessage(finalMessage || 'Layanan bulk upstream gagal memproses request.');
       }
     } catch (err: any) {
       setStep('Failed');

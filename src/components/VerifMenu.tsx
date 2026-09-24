@@ -116,34 +116,79 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
     setInstructions('');
 
     try {
-      const res = await fetch('/api/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gmail: trimmed,
-          email: trimmed,
-          sessionId
-        })
-      });
+      let isSuccess = false;
+      let resultMessage = '';
+      let resultInstructions = '';
 
-      const data = await res.json().catch(() => ({}));
+      // 1. First attempt via backend proxy
+      try {
+        const res = await fetch('/api/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gmail: trimmed,
+            email: trimmed,
+            sessionId
+          })
+        });
 
-      if (res.ok && (data.success || data.status === 'Success')) {
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok && (data.success || data.status === 'Success')) {
+          isSuccess = true;
+          resultMessage = data.message || 'Link konfirmasi verifikasi berhasil dikirim ke Gmail target!';
+          resultInstructions = data.instructions || 'Buka aplikasi Gmail atau inbox email Anda. Salin tautan konfirmasi / magic link yang masuk, lalu tempel di bawah untuk aktivasi premium 1 tahun.';
+        } else if (res.status === 400 && data.message) {
+          // Explicit validation rejection
+          setStatus('Failed');
+          setStatusMessage(data.message);
+          return;
+        }
+      } catch (proxyErr) {
+        console.warn('Backend proxy unavailable, attempting direct upstream fallback...', proxyErr);
+      }
+
+      // 2. Resilient fallback: direct to upstream API (am.dapjisync.my.id supports open CORS)
+      if (!isSuccess) {
+        try {
+          const directRes = await fetch('https://am.dapjisync.my.id/api/send', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': 'FREE'
+            },
+            body: JSON.stringify({ gmail: trimmed })
+          });
+
+          const directData = await directRes.json().catch(() => ({}));
+          if (directRes.ok && (directData.success || directData.status === 'success' || directData.message)) {
+            isSuccess = true;
+            resultMessage = directData.message || 'Link berhasil dikirim.';
+            resultInstructions = 'Silakan periksa kotak masuk (Inbox) atau folder Spam pada Gmail Anda untuk menyelesaikan proses verifikasi resmi.';
+          } else {
+            resultMessage = directData.error || directData.message || 'Layanan upstream gagal mengirim link.';
+          }
+        } catch (directErr: any) {
+          resultMessage = 'Gagal menghubungi server: ' + (directErr.message || 'Network error');
+        }
+      }
+
+      if (isSuccess) {
         setStatus('Success');
-        setStatusMessage(data.message || 'Link konfirmasi verifikasi berhasil dikirim ke Gmail target!');
+        setStatusMessage(resultMessage || 'Link konfirmasi verifikasi berhasil dikirim ke Gmail target!');
         setInstructions(
-          data.instructions || 
+          resultInstructions || 
           'Buka aplikasi Gmail atau inbox email Anda. Salin tautan konfirmasi / magic link yang masuk, lalu tempel di bawah untuk aktivasi premium 1 tahun.'
         );
         setActivateEmail(trimmed);
         localStorage.setItem('azryl_last_verif_email', trimmed);
       } else {
         setStatus('Failed');
-        setStatusMessage(data.message || data.error || 'Terjadi kendala saat mengirim link ke server.');
+        setStatusMessage(resultMessage || 'Terjadi kendala saat mengirim link ke server.');
       }
     } catch (err: any) {
       setStatus('Failed');
-      setStatusMessage('Gagal terhubung ke backend server: ' + (err.message || 'Network error'));
+      setStatusMessage('Gagal terhubung ke server: ' + (err.message || 'Network error'));
     }
   };
 
@@ -181,27 +226,69 @@ export const VerifMenu: React.FC<VerifMenuProps> = ({
     setActivateMessage('');
 
     try {
-      const res = await fetch('/api/verif', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gmail: targetEmail,
-          email: targetEmail,
-          link: cleanLink,
-          sessionId
-        })
-      });
+      let isSuccess = false;
+      let finalMessage = '';
 
-      const data = await res.json().catch(() => ({}));
+      // 1. First attempt via backend proxy
+      try {
+        const res = await fetch('/api/verif', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gmail: targetEmail,
+            email: targetEmail,
+            link: cleanLink,
+            sessionId
+          })
+        });
 
-      if (res.ok && (data.success || data.status === 'Success')) {
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok && (data.success || data.status === 'Success')) {
+          isSuccess = true;
+          finalMessage = data.message || 'Alight Motion Premium berhasil diaktifkan untuk akun Anda!';
+        } else if (res.status === 400 && (data.message || data.error)) {
+          finalMessage = data.message || data.error;
+        }
+      } catch (proxyErr) {
+        console.warn('Backend proxy unavailable, attempting direct upstream fallback...', proxyErr);
+      }
+
+      // 2. Resilient fallback: direct to upstream API
+      if (!isSuccess && (!finalMessage || finalMessage.includes('Gagal menghubungi'))) {
+        try {
+          const directRes = await fetch('https://am.dapjisync.my.id/api/verif', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-API-Key': 'FREE'
+            },
+            body: JSON.stringify({
+              gmail: targetEmail,
+              link: cleanLink
+            })
+          });
+
+          const directData = await directRes.json().catch(() => ({}));
+          if (directRes.ok && (directData.success || directData.status === 'success' || directData.status === true)) {
+            isSuccess = true;
+            finalMessage = directData.message || 'Alight Motion Premium berhasil diaktifkan untuk akun Anda!';
+          } else {
+            finalMessage = directData.error || directData.message || 'Magic link salah, kadaluarsa, atau sudah digunakan.';
+          }
+        } catch (directErr: any) {
+          finalMessage = 'Koneksi ke server terputus: ' + (directErr.message || 'Network error');
+        }
+      }
+
+      if (isSuccess) {
         setActivateStatus('Success');
         setActivationDone(true);
-        setActivateMessage(data.message || 'Alight Motion Premium berhasil diaktifkan untuk akun Anda!');
+        setActivateMessage(finalMessage || 'Alight Motion Premium berhasil diaktifkan untuk akun Anda!');
         setActivateLink('');
       } else {
         setActivateStatus('Failed');
-        setActivateMessage(data.message || data.error || 'Magic link salah, kadaluarsa, atau sudah digunakan. Silakan kirim magic link baru.');
+        setActivateMessage(finalMessage || 'Magic link salah, kadaluarsa, atau sudah digunakan. Silakan kirim magic link baru.');
       }
     } catch (err: any) {
       setActivateStatus('Failed');

@@ -1,5 +1,7 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
+import type { Request, Response } from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 
@@ -9,9 +11,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json());
+
+// Enable CORS for all origins and headers so deployed apps & iframes work seamlessly
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-API-Key');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
 
 // In-memory runtime cache & sync for high speed, backed with Firestore
 interface WebsiteConfig {
@@ -331,6 +344,10 @@ app.post('/api/send', async (req: Request, res: Response) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Referer': 'https://am.dapjisync.my.id/',
+        'Origin': 'https://am.dapjisync.my.id',
         'X-API-Key': externalApiKey
       },
       body: JSON.stringify({
@@ -477,6 +494,10 @@ app.post('/api/verif', async (req: Request, res: Response) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Referer': 'https://am.dapjisync.my.id/',
+        'Origin': 'https://am.dapjisync.my.id',
         'X-API-Key': externalApiKey
       },
       body: JSON.stringify({
@@ -597,6 +618,10 @@ app.post('/api/bulk', async (req: Request, res: Response) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Referer': 'https://am.dapjisync.my.id/',
+        'Origin': 'https://am.dapjisync.my.id',
         'X-API-Key': externalApiKey
       },
       body: JSON.stringify({ total: numTotal }),
@@ -701,9 +726,12 @@ app.post('/api/bulk', async (req: Request, res: Response) => {
   }
 });
 
-// Vite Middleware integration for development
+// Vite Middleware integration for development / production static serving
 async function startServer() {
-  const isProduction = process.env.NODE_ENV === 'production';
+  const distPath = path.resolve(__dirname, 'dist');
+  const hasDist = fs.existsSync(path.resolve(distPath, 'index.html'));
+  const isDev = process.env.npm_lifecycle_event === 'dev';
+  const isProduction = (process.env.NODE_ENV === 'production' || hasDist) && !isDev;
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
@@ -719,7 +747,6 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     // Production static serving
-    const distPath = path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
     app.get('*', (req: Request, res: Response) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
@@ -727,7 +754,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[AZRYLPREM] Core server running on http://0.0.0.0:${PORT}`);
+    console.log(`[AZRYLPREM] Core server running on http://0.0.0.0:${PORT} (mode: ${isProduction ? 'production' : 'development'})`);
     console.log(`[AZRYLPREM] Backend proxy active for https://am.dapjisync.my.id`);
   });
 }
